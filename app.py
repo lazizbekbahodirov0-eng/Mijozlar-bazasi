@@ -1,107 +1,74 @@
 import streamlit as st
-import sqlite3
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
-# --- SAHIFANI SOZLASH ---
-st.set_page_config(page_title="Mijozlar Baza Pro", layout="wide", page_icon="💼")
+# --- SAHIFANI SOZLASH (2026 yangi standartida) ---
+st.set_page_config(page_title="Mijozlar Baza Cloud", layout="wide", page_icon="☁️")
 
-# --- MA'LUMOTLAR BAZASI ---
-def baza_yaratish():
-    conn = sqlite3.connect('malumotlar.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS mijozlar 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, ism TEXT, telefon TEXT, manzil TEXT)''')
-    conn.commit()
-    conn.close()
-
-def malumotlarni_olish():
-    conn = sqlite3.connect('malumotlar.db')
-    df = pd.read_sql_query("SELECT * FROM mijozlar", conn)
-    conn.close()
-    return df
+# --- GOOGLE SHEETS BILAN ULANISH ---
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+except Exception as e:
+    st.error("Xato: Secrets sozlamalarida Google Sheets linki topilmadi!")
+    st.stop()
 
 # --- LOGIN TIZIMI ---
-def login():
-    st.title("🔐 Tizimga kirish")
-    st.info("Login: admin | Parol: 12345")
-    
-    username = st.text_input("Loginni kiriting:")
-    password = st.text_input("Parolni kiriting:", type="password")
-    
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+
+if not st.session_state['logged_in']:
+    st.title("🔐 Bulutli tizimga kirish")
+    user = st.text_input("Login:")
+    pas = st.text_input("Parol:", type="password")
     if st.button("Kirish"):
-        if username == "admin" and password == "12345":
+        if user == "admin" and pas == "12345":
             st.session_state['logged_in'] = True
             st.rerun()
         else:
             st.error("Login yoki parol xato!")
+    st.stop()
 
 # --- ASOSIY DASTUR ---
-def asosiy_dastur():
-    baza_yaratish()
-    
-    st.sidebar.markdown("# 🚀 Boshqaruv")
-    st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=100)
-    
-    tanlov = st.sidebar.radio("Bo'limni tanlang:", ["📊 Statistika", "🆕 Yangi qo'shish", "📋 Ro'yxat va Qidiruv", "🗑 O'chirish"])
-    
-    if st.sidebar.button("Chiqish (Logout)"):
-        st.session_state['logged_in'] = False
-        st.rerun()
+st.sidebar.markdown("# ☁️ Cloud Baza 2026")
+tanlov = st.sidebar.radio("Bo'lim:", ["📊 Statistika", "🆕 Yangi qo'shish", "📋 Ro'yxat"])
 
-    if tanlov == "📊 Statistika":
-        st.header("📊 Umumiy statistika")
-        df = malumotlarni_olish()
-        st.metric(label="Jami mijozlar soni", value=len(df))
-
-    elif tanlov == "🆕 Yangi qo'shish":
-        st.subheader("🆕 Yangi mijoz kiritish")
-        with st.form("shakl"):
-            ism = st.text_input("Mijozning ismi:")
-            tel = st.text_input("Telefon raqami:")
-            manzil = st.text_area("Manzili:")
-            saqlash = st.form_submit_button("Bazaga saqlash")
-            
-            if saqlash:
-                if ism and tel:
-                    conn = sqlite3.connect('malumotlar.db')
-                    c = conn.cursor()
-                    c.execute('INSERT INTO mijozlar (ism, telefon, manzil) VALUES (?, ?, ?)', (ism, tel, manzil))
-                    conn.commit()
-                    conn.close()
-                    st.success(f"✅ {ism} saqlandi!")
-                else:
-                    st.warning("Ism va telefonni to'ldiring!")
-
-    elif tanlov == "📋 Ro'yxat va Qidiruv":
-        st.subheader("📋 Mijozlar ro'yxati")
-        df = malumotlarni_olish()
-        if not df.empty:
-            qidiruv = st.text_input("🔍 Qidirish:")
-            if qidiruv:
-                df = df[df['ism'].str.contains(qidiruv, case=False) | df['telefon'].str.contains(qidiruv)]
-            st.dataframe(df[['ism', 'telefon', 'manzil']], use_container_width=True)
-        else:
-            st.info("Baza bo'sh.")
-
-    elif tanlov == "🗑 O'chirish":
-        st.subheader("🗑 Ma'lumotni o'chirish")
-        df = malumotlarni_olish()
-        if not df.empty:
-            tanlov_och = st.selectbox("O'chirmoqchi bo'lgan mijozni tanlang:", df['ism'].tolist())
-            if st.button("O'chirishni tasdiqlash", type="primary"):
-                conn = sqlite3.connect('malumotlar.db')
-                c = conn.cursor()
-                c.execute('DELETE FROM mijozlar WHERE ism = ?', (tanlov_och,))
-                conn.commit()
-                conn.close()
-                st.success(f"{tanlov_och} o'chirildi!")
-                st.rerun()
-
-# --- DASTURNI BOSHQARISH ---
-if 'logged_in' not in st.session_state:
+if st.sidebar.button("Chiqish"):
     st.session_state['logged_in'] = False
+    st.rerun()
 
-if st.session_state['logged_in']:
-    asosiy_dastur()
-else:
-    login()
+# Ma'lumotlarni olish
+try:
+    df = conn.read(ttl=0)
+except Exception as e:
+    st.error(f"Ma'lumotlarni o'qib bo'lmadi. Secrets-ni tekshiring! Xato: {e}")
+    st.stop()
+
+if tanlov == "📊 Statistika":
+    st.header("📊 Umumiy holat")
+    st.metric("Jami mijozlar", len(df))
+    st.dataframe(df, width='stretch')
+
+elif tanlov == "🆕 Yangi qo'shish":
+    st.subheader("🆕 Yangi mijoz qo'shish")
+    with st.form("shakl"):
+        ism = st.text_input("Ism:")
+        tel = st.text_input("Telefon:")
+        manzil = st.text_area("Manzil:")
+        submit = st.form_submit_button("Google Sheets-ga saqlash")
+        
+        if submit:
+            if ism and tel:
+                yangi_mijoz = pd.DataFrame([{"ism": ism, "telefon": tel, "manzil": manzil}])
+                yangilangan_df = pd.concat([df, yangi_mijoz], ignore_index=True)
+                conn.update(data=yangilangan_df)
+                st.success("✅ Ma'lumot Google Sheets-ga saqlandi!")
+                st.rerun()
+            else:
+                st.warning("Ism va telefonni kiriting!")
+
+elif tanlov == "📋 Ro'yxat":
+    st.subheader("📋 Mijozlar ro'yxati")
+    qidiruv = st.text_input("🔍 Ism bo'yicha qidirish:")
+    if qidiruv:
+        df = df[df['ism'].str.contains(qidiruv, case=False, na=False)]
+    st.dataframe(df, width='stretch')
