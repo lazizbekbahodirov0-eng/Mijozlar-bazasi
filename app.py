@@ -1,15 +1,19 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+import io
 
-# --- SAHIFANI SOZLASH (2026 yangi standartida) ---
-st.set_page_config(page_title="Mijozlar Baza Cloud", layout="wide", page_icon="☁️")
+# --- SAHIFANI SOZLASH ---
+st.set_page_config(page_title="Mijozlar Baza Cloud", layout="wide", page_icon="📝")
 
-# --- GOOGLE SHEETS BILAN ULANISH ---
+# --- GOOGLE SHEETS ULANISH ---
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
-except Exception as e:
-    st.error("Xato: Secrets sozlamalarida Google Sheets linki topilmadi!")
+except:
+    st.error("Secrets sozlamalarini tekshiring!")
     st.stop()
 
 # --- LOGIN TIZIMI ---
@@ -17,7 +21,7 @@ if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
 if not st.session_state['logged_in']:
-    st.title("🔐 Bulutli tizimga kirish")
+    st.title("🔐 Tizimga kirish")
     user = st.text_input("Login:")
     pas = st.text_input("Parol:", type="password")
     if st.button("Kirish"):
@@ -25,50 +29,86 @@ if not st.session_state['logged_in']:
             st.session_state['logged_in'] = True
             st.rerun()
         else:
-            st.error("Login yoki parol xato!")
+            st.error("Xato!")
     st.stop()
 
-# --- ASOSIY DASTUR ---
-st.sidebar.markdown("# ☁️ Cloud Baza 2026")
-tanlov = st.sidebar.radio("Bo'lim:", ["📊 Statistika", "🆕 Yangi qo'shish", "📋 Ro'yxat"])
+# --- WORD SHABLON YARATISH FUNKSIYASI ---
+def shartnoma_yaratish(data):
+    doc = Document()
+    
+    # Stil sozlamalari
+    style = doc.styles['Normal']
+    style.font.name = 'Times New Roman'
+    style.font.size = Pt(12)
 
-if st.sidebar.button("Chiqish"):
-    st.session_state['logged_in'] = False
-    st.rerun()
+    # Sarlavha
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run(f"Махсулот қийматини бўлиб тўлаш шарти билан тузилган\n№ {data['nomer']}- сонли олди сотди\nШАРТНОМА")
+    run.bold = True
+    
+    doc.add_paragraph(f"\n{data['sana']} yil").alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-# Ma'lumotlarni olish
-try:
-    df = conn.read(ttl=0)
-except Exception as e:
-    st.error(f"Ma'lumotlarni o'qib bo'lmadi. Secrets-ni tekshiring! Xato: {e}")
-    st.stop()
+    # Kirish qismi
+    p2 = doc.add_paragraph()
+    p2.add_run(f"Мен {data['ism']}, ").bold = True
+    p2.add_run(f"Узбекистон Фукароси, паспорт № {data['pasport']}, {data['pasport_sana']}da {data['pasport_joy']} томонидан берилган, {data['manzil']} манзилда истиқомат қилувчи, телефон {data['tel']} «Харидор» бир тарафдан ва OOO \"NEW DREAMS STAR\" номидан директор Нурбеков У.Ю. иккинчи тарафдан...")
+
+    # Bu yerga shartnomaning qolgan 15 ta bandini matnini qo'shish mumkin
+    doc.add_heading('1. Шартнома предмети', level=1)
+    doc.add_paragraph(f"1.1. Сотувчи {data['mahsulot']}ни Харидорга топширади...")
+
+    doc.add_heading('Нарх ва Тўлов', level=1)
+    doc.add_paragraph(f"Жами сумма: {data['summa']} сўм. Ойлик тўлов: {data['oylik']} сўм.")
+
+    # Faylni xotiraga saqlash
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+# --- ASOSIY MENYU ---
+st.sidebar.markdown("# 🚀 Boshqaruv")
+tanlov = st.sidebar.radio("Bo'limni tanlang:", ["📊 Statistika", "📋 Ro'yxat", "📄 Shartnoma yaratish"])
 
 if tanlov == "📊 Statistika":
-    st.header("📊 Umumiy holat")
+    df = conn.read(ttl=0)
     st.metric("Jami mijozlar", len(df))
     st.dataframe(df, width='stretch')
 
-elif tanlov == "🆕 Yangi qo'shish":
-    st.subheader("🆕 Yangi mijoz qo'shish")
-    with st.form("shakl"):
-        ism = st.text_input("Ism:")
-        tel = st.text_input("Telefon:")
-        manzil = st.text_area("Manzil:")
-        submit = st.form_submit_button("Google Sheets-ga saqlash")
-        
-        if submit:
-            if ism and tel:
-                yangi_mijoz = pd.DataFrame([{"ism": ism, "telefon": tel, "manzil": manzil}])
-                yangilangan_df = pd.concat([df, yangi_mijoz], ignore_index=True)
-                conn.update(data=yangilangan_df)
-                st.success("✅ Ma'lumot Google Sheets-ga saqlandi!")
-                st.rerun()
-            else:
-                st.warning("Ism va telefonni kiriting!")
-
 elif tanlov == "📋 Ro'yxat":
-    st.subheader("📋 Mijozlar ro'yxati")
-    qidiruv = st.text_input("🔍 Ism bo'yicha qidirish:")
-    if qidiruv:
-        df = df[df['ism'].str.contains(qidiruv, case=False, na=False)]
-    st.dataframe(df, width='stretch')
+    df = conn.read(ttl=0)
+    st.table(df)
+
+elif tanlov == "📄 Shartnoma yaratish":
+    st.header("📄 Yangi Shartnoma tayyorlash")
+    st.info("Qizil harflar bilan yozilgan ma'lumotlarni kiriting")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        nomer = st.text_input("Shartnoma №:", "3080")
+        sana = st.text_input("Sana:", "27.12.2025")
+        fio = st.text_input("Mijoz F.I.SH:", "URINBAYEB SHOHJAHON SHAROF O’G’LI")
+        pas_num = st.text_input("Pasport seriya:", "AD6259891")
+        pas_sana = st.text_input("Berilgan sana:", "23.02.2024Y")
+    with col2:
+        pas_joy = st.text_input("Kim tomonidan berilgan:", "JIZZAX VILOYATI JIZZAX SHAXAR IIV")
+        manzil = st.text_area("Yashash manzili:", "JIZZAX VILOYATI JIZZAX SHAXAR TOSHLOQ QFY")
+        tel = st.text_input("Telefon:", "90 487 97 77")
+        mahsulot = st.text_input("Mahsulot nomi:", "IPHONE 13 PRO")
+        summa = st.text_input("Jami summa:", "5 436 000")
+        oylik = st.text_input("Oylik to'lov:", "906 000")
+
+    if st.button("Word faylni tayyorlash"):
+        data = {
+            'nomer': nomer, 'sana': sana, 'ism': fio, 'pasport': pas_num,
+            'pasport_sana': pas_sana, 'pasport_joy': pas_joy, 'manzil': manzil,
+            'tel': tel, 'mahsulot': mahsulot, 'summa': summa, 'oylik': oylik
+        }
+        word_fayl = shartnoma_yaratish(data)
+        st.download_button(
+            label="📥 Shartnomani yuklab olish (.docx)",
+            data=word_fayl,
+            file_name=f"Shartnoma_{nomer}_{fio}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
